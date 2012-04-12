@@ -1,13 +1,13 @@
 import unittest
 import sys
-import StringIO
+import io
 import s3g
 
 class CRCTests(unittest.TestCase):
   def test_cases(self):
     cases = [
-      ['input', 0xFF],
-      ['input2', 0xFF],
+      [b'input', b'\xFF'],
+      [b'input2', b'\xFF'],
     ]
     for case in cases:
       assert s3g.CalculateCRC(case[0]) == case[1]
@@ -40,7 +40,8 @@ class PacketEncodeTests(unittest.TestCase):
   def test_packet_header(self):
     payload = 'abcd'
     packet = s3g.EncodePacket(payload)
-    assert packet[0] == 0xD5
+
+    assert packet[0] == s3g.header
 
   def test_packet_length_field(self):
     payload = 'abcd'
@@ -54,35 +55,35 @@ class PacketEncodeTests(unittest.TestCase):
 
 class PacketDecodeTests(unittest.TestCase):
   def test_undersize_packet(self):
-    packet = 'abc'
+    packet = bytearray('abc')
     self.assertRaises(s3g.PacketLengthError,s3g.DecodePacket,packet)
     
   def test_wrong_header(self):
-    packet = 'abcd'
+    packet = bytearray('abcd')
     self.assertRaises(s3g.PacketHeaderError,s3g.DecodePacket,packet)
 
   def test_bad_packet_length_field(self):
     packet = bytearray()
-    packet.append(0xD5)
+    packet.append(s3g.header)
     packet.append(5)
-    packet += 'ab'
+    packet.extend('ab')
     self.assertRaises(s3g.PacketLengthFieldError,s3g.DecodePacket,packet)
 
   def test_bad_crc(self):
     packet = bytearray()
-    packet.append(0xD5)
+    packet.append(s3g.header)
     packet.append(1)
-    packet += 'a'
+    packet.extend('a')
     packet.append(0xFF)
     self.assertRaises(s3g.PacketCRCError,s3g.DecodePacket,packet)
 
   def test_got_payload(self):
-    expected_payload = 'abcde'
+    expected_payload = bytearray('abcde')
 
     packet = bytearray()
-    packet.append(0xD5)
+    packet.append(s3g.header)
     packet.append(len(expected_payload))
-    packet += expected_payload
+    packet.extend(expected_payload)
     packet.append(s3g.CalculateCRC(expected_payload))
 
     payload = s3g.DecodePacket(packet)
@@ -91,7 +92,7 @@ class PacketDecodeTests(unittest.TestCase):
 class ReplicatorTests(unittest.TestCase):
   def setUp(self):
     self.r = s3g.Replicator()
-    self.stream = StringIO.StringIO()
+    self.stream = io.BytesIO()
     self.r.stream = self.stream
 
   def tearDown(self):
@@ -103,14 +104,12 @@ class ReplicatorTests(unittest.TestCase):
     expected_velocity = 6
     self.r.Move(expected_target, expected_velocity)
 
-    packet = self.stream.getvalue()
-    print packet
-    print len(packet)
+    packet = bytearray(self.stream.getvalue())
 
     payload = s3g.DecodePacket(packet)
-    assert payload[0] == command_map['QUEUE_EXTENDED_POINT']
+    assert payload[0] == s3g.command_map['QUEUE_EXTENDED_POINT']
     for i in range(0, 5):
-      assert EncodeInt32(expected_target[i]) == payload[(i*4+1):(i*4+5)]
+      assert s3g.EncodeInt32(expected_target[i]) == payload[(i*4+1):(i*4+5)]
 
 if __name__ == "__main__":
   unittest.main()

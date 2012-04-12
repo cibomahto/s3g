@@ -1,6 +1,13 @@
 # Some utilities for speaking s3g
 import struct
 
+
+command_map = {
+  'QUEUE_EXTENDED_POINT'    : 139,
+}
+
+header = 0xD5
+
 class PacketError(Exception):
   def __init__(self, value):
      self.value = value
@@ -10,18 +17,22 @@ class PacketError(Exception):
 class PacketLengthError(PacketError):
   def __init__(self, length, expected_length):
     self.value='Invalid length. Got=%i, Expected=%i'%(length, expected_length)
+    pass
 
 class PacketLengthFieldError(PacketError):
   def __init__(self, length, expected_length):
     self.value='Invalid length field. Got=%i, Expected=%i'%(length, expected_length)
+    pass
 
 class PacketHeaderError(PacketError):
   def __init__(self, header, expected_header):
-    self.value='Invalid header. Got=%x, Expected=%x'%(ord(header), ord(expected_header))
+    self.value='Invalid header. Got=%x, Expected=%x'%(header, expected_header)
+    pass
 
 class PacketCRCError(PacketError):
   def __init__(self, crc, expected_crc):
-    self.value='Invalid crc. Got=%x, Expected=%x'%(ord(crc), ord(expected_crc))
+    self.value='Invalid crc. Got=%x, Expected=%x'%(crc, expected_crc)
+    pass
 
 def CalculateCRC(data):
   """
@@ -80,9 +91,9 @@ def EncodePacket(payload):
   @return bytearray containing the packet
   """
   packet = bytearray()
-  packet.append(0xD5)
+  packet.append(header)
   packet.append(len(payload))
-  packet += payload
+  packet.extend(payload)
   packet.append(CalculateCRC(payload))
 
   return packet
@@ -95,11 +106,13 @@ def DecodePacket(packet):
   @param packet byte array containing the input packet
   @return payload of the packet
   """
+  assert type(packet) is bytearray
+
   if len(packet) < 4:
     raise PacketLengthError(len(packet), 4)
 
-  if packet[0] != 0xD5:
-    raise PacketHeaderError(packet[0], 0xD5)
+  if packet[0] != header:
+    raise PacketHeaderError(packet[0], header)
 
   if packet[1] != len(packet) - 3:
     raise PacketLengthFieldError(packet[1], len(packet) - 3)
@@ -109,10 +122,6 @@ def DecodePacket(packet):
 
   return packet[2:(len(packet)-1)]
 
-
-command_map = {
-  'QUEUE_EXTENDED_POINT'    : 139,
-  }
 
 class Replicator:
   stream = None
@@ -125,12 +134,12 @@ class Replicator:
     """
     payload = bytearray()
     payload.append(command_map['QUEUE_EXTENDED_POINT'])
-    payload += EncodeInt32(position[0])
-    payload += EncodeInt32(position[1])
-    payload += EncodeInt32(position[2])
-    payload += EncodeInt32(position[3])
-    payload += EncodeInt32(position[4])
-    payload += EncodeUint32(rate)
+    payload.extend(EncodeInt32(position[0]))
+    payload.extend(EncodeInt32(position[1]))
+    payload.extend(EncodeInt32(position[2]))
+    payload.extend(EncodeInt32(position[3]))
+    payload.extend(EncodeInt32(position[4]))
+    payload.extend(EncodeUint32(rate))
     
     packet = EncodePacket(payload)
     self.stream.write(packet)
