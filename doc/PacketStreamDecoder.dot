@@ -1,0 +1,26 @@
+// vim:ai:et:fenc=utf-8:ff=unix:sw=4:ts=4:
+
+digraph
+{
+  "READY" -> "VALID HEADER?" [label="receive byte"];
+  "VALID HEADER?" [shape=diamond];
+  "VALID HEADER?" -> "READY" [label="no"];
+  "VALID HEADER?" -> "WAIT FOR LENGTH" [label="yes"];
+  "WAIT FOR LENGTH" -> "READY" [label="timeout"];
+  "WAIT FOR LENGTH" -> "VALID LENGTH?" [label="receive byte"];
+  "VALID LENGTH?" [shape=diamond];
+  "VALID LENGTH?" -> "READY" [label="no"];
+  "VALID LENGTH?" -> "WAIT FOR DATA" [label="yes"];
+  "WAIT FOR DATA" -> "READY" [label="timeout"];
+  "WAIT FOR DATA" -> "ENOUGH DATA?" [label="receive byte"];
+  "ENOUGH DATA?" [shape=diamond];
+  "ENOUGH DATA?" -> "WAIT FOR DATA" [label="no"];
+  "ENOUGH DATA?" -> "WAIT FOR CRC" [label="yes"];
+  "WAIT FOR CRC" -> "READY" [label="timeout"];
+  "WAIT FOR CRC" -> "CALCULATE CRC" [label="receive byte"];
+  "CALCULATE CRC" -> "VALID CRC?";
+  "VALID CRC?" [shape=diamond];
+  "VALID CRC?" -> "READY" [label="no"];
+  "VALID CRC?" -> "EXTRACT PAYLOAD" [label="yes"];
+  "EXTRACT PAYLOAD" -> "READY";
+}

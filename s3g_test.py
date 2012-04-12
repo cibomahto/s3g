@@ -12,6 +12,7 @@ class CRCTests(unittest.TestCase):
     for case in cases:
       assert s3g.CalculateCRC(case[0]) == case[1]
 
+
 class EncodeTests(unittest.TestCase):
   def test_encode_int32(self):
     cases = [
@@ -31,7 +32,14 @@ class EncodeTests(unittest.TestCase):
     for case in cases:
       assert s3g.EncodeUint32(case[0]) == case[1]
 
+
 class PacketEncodeTests(unittest.TestCase):
+  def test_reject_oversize_payload(self):
+    payload = bytearray()
+    for i in range (0, s3g.maximum_payload_length + 1):
+      payload.append(i)
+    self.assertRaises(s3g.PacketLengthError,s3g.EncodePacket,payload)
+
   def test_packet_length(self):
     payload = 'abcd'
     packet = s3g.EncodePacket(payload)
@@ -52,6 +60,7 @@ class PacketEncodeTests(unittest.TestCase):
     payload = 'abcd'
     packet = s3g.EncodePacket(payload)
     assert packet[6] == s3g.CalculateCRC(payload);
+
 
 class PacketDecodeTests(unittest.TestCase):
   def test_undersize_packet(self):
@@ -74,7 +83,7 @@ class PacketDecodeTests(unittest.TestCase):
     packet.append(s3g.header)
     packet.append(1)
     packet.extend('a')
-    packet.append(0xFF)
+    packet.append(s3g.CalculateCRC('a')+1)
     self.assertRaises(s3g.PacketCRCError,s3g.DecodePacket,packet)
 
   def test_got_payload(self):
@@ -89,6 +98,64 @@ class PacketDecodeTests(unittest.TestCase):
     payload = s3g.DecodePacket(packet)
     assert payload == expected_payload
 
+
+class PacketStreamDecoderTests(unittest.TestCase):
+  def setUp(self):
+    self.s = s3g.PacketStreamDecoder()
+
+  def tearDown(self):
+    self.s = None
+
+  def test_starts_in_ready_mode(self):
+    assert(self.s.state == "READY")
+    assert(len(self.s.payload) == 0)
+    assert(self.s.expected_length == 0)
+
+  def test_reject_bad_header(self):
+    self.assertRaises(s3g.PacketHeaderError,self.s.ReceiveByte,0x00)
+    assert(self.s.state == "READY")
+
+  def test_accept_header(self):
+    self.s.ReceiveByte(s3g.header)
+    assert(self.s.state == "WAIT_FOR_LENGTH")
+
+  def test_reject_bad_size(self):
+    self.s.ReceiveByte(s3g.header)
+    self.assertRaises(s3g.PacketLengthFieldError,self.s.ReceiveByte,s3g.maximum_payload_length+1)
+
+  def test_accept_size(self):
+    self.s.ReceiveByte(s3g.header)
+    self.s.ReceiveByte(s3g.maximum_payload_length)
+    assert(self.s.state == "WAIT_FOR_DATA")
+    assert(self.s.expected_length == s3g.maximum_payload_length)
+
+  def test_accepts_data(self):
+    self.s.ReceiveByte(s3g.header)
+    self.s.ReceiveByte(s3g.maximum_payload_length)
+    for i in range (0, s3g.maximum_payload_length):
+      self.s.ReceiveByte(i)
+
+    assert(self.s.expected_length == s3g.maximum_payload_length)
+    for i in range (0, s3g.maximum_payload_length):
+      assert(self.s.payload[i] == i)
+
+  def test_reject_bad_crc(self):
+    payload = 'abcde'
+    self.s.ReceiveByte(s3g.header)
+    self.s.ReceiveByte(len(payload))
+    for i in range (0, len(payload)):
+      self.s.ReceiveByte(payload[i])
+    self.assertRaises(s3g.PacketCRCError,self.s.ReceiveByte,s3g.CalculateCRC(payload)+1)
+
+  def test_returns_payload(self):
+    payload = 'abcde'
+    self.s.ReceiveByte(s3g.header)
+    self.s.ReceiveByte(len(payload))
+    for i in range (0, len(payload)):
+      self.s.ReceiveByte(payload[i])
+    assert(self.s.ReceiveByte(s3g.CalculateCRC(payload)) == payload)
+
+
 class ReplicatorTests(unittest.TestCase):
   def setUp(self):
     self.r = s3g.Replicator()
@@ -99,7 +166,7 @@ class ReplicatorTests(unittest.TestCase):
     self.r = None
     self.stream = None
 
-  def test_move(self):
+  def test_queue_extended_point(self):
     expected_target = [1,2,3,4,5]
     expected_velocity = 6
     self.r.Move(expected_target, expected_velocity)
@@ -110,6 +177,7 @@ class ReplicatorTests(unittest.TestCase):
     assert payload[0] == s3g.command_map['QUEUE_EXTENDED_POINT']
     for i in range(0, 5):
       assert s3g.EncodeInt32(expected_target[i]) == payload[(i*4+1):(i*4+5)]
+
 
 if __name__ == "__main__":
   unittest.main()
