@@ -133,45 +133,65 @@ class PacketStreamDecoder:
   each packet, then extracts and returns the payload.
   """
   def __init__(self):
-    self.state = "READY"
+    self.state = 'READY'
     self.payload = bytearray()
     self.expected_length = 0
 
-  def ReceiveByte(self, byte):
+
+  def ParseByte(self, byte):
     """
     Entry point, call for each byte added to the stream.
     @param byte Byte to add to the stream
     @return s3g payload if a full packet was received, None otherwise.
     """
-    if self.state == "READY":
+    if self.state == 'READY':
       if byte != header:
         raise PacketHeaderError(byte, header)
 
-      self.state = "WAIT_FOR_LENGTH"
+      self.state = 'WAIT_FOR_LENGTH'
 
-    elif self.state == "WAIT_FOR_LENGTH":
+    elif self.state == 'WAIT_FOR_LENGTH':
       if byte > maximum_payload_length:
         raise PacketLengthFieldError(byte, maximum_payload_length)
 
       self.expected_length = byte
-      self.state = "WAIT_FOR_DATA"
+      self.state = 'WAIT_FOR_DATA'
 
-    elif self.state == "WAIT_FOR_DATA":
+    elif self.state == 'WAIT_FOR_DATA':
       self.payload.append(byte)
       if len(self.payload) == self.expected_length:
-        self.state = "WAIT_FOR_CRC"
+        self.state = 'WAIT_FOR_CRC'
 
-    elif self.state == "WAIT_FOR_CRC":
+    elif self.state == 'WAIT_FOR_CRC':
       if CalculateCRC(self.payload) != byte:
         raise PacketCRCError(byte, CalculateCRC(self.payload))
 
-      self.state = "READY"
+      self.state = 'READY'
       return self.payload
+
+#def ReadResponse(file):
+#  """
+#  Blocking call to read up to one s3g packet from a file stream. Returns the payload
+#  if the reception was successful, and an exception if the reception was not successful.
+#  @param file File to read packet from
+#  @return Payload of the packet, if successful
+#  """
+#  packet = PacketStreamDecoder()
+#  payload = None
+#
+#  while file.inWaiting() > 0:
+#    data = file.read()
+#    print ord(data)
+#    payload = packet.ParseByte(data)
+#    if payload != None:
+#      return payload
+#
+#  return 'a'
 
 
 class Replicator:
   def __init__(self):
-    self.stream = None
+    self.file = None
 
   def Move(self, position, rate):
     """
@@ -189,5 +209,6 @@ class Replicator:
     payload.extend(EncodeUint32(rate))
     
     packet = EncodePacket(payload)
-    self.stream.write(packet)
+    self.file.write(packet)
+    self.file.flush()
 

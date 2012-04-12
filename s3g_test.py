@@ -107,33 +107,33 @@ class PacketStreamDecoderTests(unittest.TestCase):
     self.s = None
 
   def test_starts_in_ready_mode(self):
-    assert(self.s.state == "READY")
+    assert(self.s.state == 'READY')
     assert(len(self.s.payload) == 0)
     assert(self.s.expected_length == 0)
 
   def test_reject_bad_header(self):
-    self.assertRaises(s3g.PacketHeaderError,self.s.ReceiveByte,0x00)
-    assert(self.s.state == "READY")
+    self.assertRaises(s3g.PacketHeaderError,self.s.ParseByte,0x00)
+    assert(self.s.state == 'READY')
 
   def test_accept_header(self):
-    self.s.ReceiveByte(s3g.header)
-    assert(self.s.state == "WAIT_FOR_LENGTH")
+    self.s.ParseByte(s3g.header)
+    assert(self.s.state == 'WAIT_FOR_LENGTH')
 
   def test_reject_bad_size(self):
-    self.s.ReceiveByte(s3g.header)
-    self.assertRaises(s3g.PacketLengthFieldError,self.s.ReceiveByte,s3g.maximum_payload_length+1)
+    self.s.ParseByte(s3g.header)
+    self.assertRaises(s3g.PacketLengthFieldError,self.s.ParseByte,s3g.maximum_payload_length+1)
 
   def test_accept_size(self):
-    self.s.ReceiveByte(s3g.header)
-    self.s.ReceiveByte(s3g.maximum_payload_length)
-    assert(self.s.state == "WAIT_FOR_DATA")
+    self.s.ParseByte(s3g.header)
+    self.s.ParseByte(s3g.maximum_payload_length)
+    assert(self.s.state == 'WAIT_FOR_DATA')
     assert(self.s.expected_length == s3g.maximum_payload_length)
 
   def test_accepts_data(self):
-    self.s.ReceiveByte(s3g.header)
-    self.s.ReceiveByte(s3g.maximum_payload_length)
+    self.s.ParseByte(s3g.header)
+    self.s.ParseByte(s3g.maximum_payload_length)
     for i in range (0, s3g.maximum_payload_length):
-      self.s.ReceiveByte(i)
+      self.s.ParseByte(i)
 
     assert(self.s.expected_length == s3g.maximum_payload_length)
     for i in range (0, s3g.maximum_payload_length):
@@ -141,37 +141,45 @@ class PacketStreamDecoderTests(unittest.TestCase):
 
   def test_reject_bad_crc(self):
     payload = 'abcde'
-    self.s.ReceiveByte(s3g.header)
-    self.s.ReceiveByte(len(payload))
+    self.s.ParseByte(s3g.header)
+    self.s.ParseByte(len(payload))
     for i in range (0, len(payload)):
-      self.s.ReceiveByte(payload[i])
-    self.assertRaises(s3g.PacketCRCError,self.s.ReceiveByte,s3g.CalculateCRC(payload)+1)
+      self.s.ParseByte(payload[i])
+    self.assertRaises(s3g.PacketCRCError,self.s.ParseByte,s3g.CalculateCRC(payload)+1)
 
   def test_returns_payload(self):
     payload = 'abcde'
-    self.s.ReceiveByte(s3g.header)
-    self.s.ReceiveByte(len(payload))
+    self.s.ParseByte(s3g.header)
+    self.s.ParseByte(len(payload))
     for i in range (0, len(payload)):
-      self.s.ReceiveByte(payload[i])
-    assert(self.s.ReceiveByte(s3g.CalculateCRC(payload)) == payload)
+      self.s.ParseByte(payload[i])
+    assert(self.s.ParseByte(s3g.CalculateCRC(payload)) == payload)
+    assert(self.s.state == 'READY')
 
 
 class ReplicatorTests(unittest.TestCase):
+  """
+  Emulate a machine
+  """
   def setUp(self):
     self.r = s3g.Replicator()
-    self.stream = io.BytesIO()
-    self.r.stream = self.stream
+    self.outputstream = io.BytesIO() # Stream that we will send responses on
+    self.inputstream = io.BytesIO()  # Stream that we will receive commands on
+    self.file = io.BufferedRWPair(self.outputstream, self.inputstream)
+    self.r.file = self.file
 
   def tearDown(self):
     self.r = None
-    self.stream = None
+    self.readstream = None
+    self.writestream = None
+    self.file = None
 
   def test_queue_extended_point(self):
     expected_target = [1,2,3,4,5]
     expected_velocity = 6
     self.r.Move(expected_target, expected_velocity)
 
-    packet = bytearray(self.stream.getvalue())
+    packet = bytearray(self.inputstream.getvalue())
 
     payload = s3g.DecodePacket(packet)
     assert payload[0] == s3g.command_map['QUEUE_EXTENDED_POINT']
@@ -181,4 +189,3 @@ class ReplicatorTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
-    
