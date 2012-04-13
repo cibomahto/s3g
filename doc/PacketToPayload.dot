@@ -1,0 +1,36 @@
+// vim:ai:et:fenc=utf-8:ff=unix:sw=4:ts=4:
+
+digraph
+{
+  "SET RETRY_COUNT=0" -> "TRANSMIT PACKET";
+  "TRANSMIT PACKET" -> "WAIT FOR HEADER";
+  "WAIT FOR HEADER" -> "ERROR" [label="timeout"];
+  "WAIT FOR HEADER" -> "VALID HEADER?" [label="receive byte"];
+  "VALID HEADER?" [shape=diamond];
+  "VALID HEADER?" -> "ERROR" [label="no"];
+  "VALID HEADER?" -> "WAIT FOR LENGTH" [label="yes"];
+  "WAIT FOR LENGTH" -> "ERROR" [label="timeout"];
+  "WAIT FOR LENGTH" -> "VALID LENGTH?" [label="receive byte"];
+  "VALID LENGTH?" [shape=diamond];
+  "VALID LENGTH?" -> "ERROR" [label="no"];
+  "VALID LENGTH?" -> "WAIT FOR DATA" [label="yes"];
+  "WAIT FOR DATA" -> "ERROR" [label="timeout"];
+  "WAIT FOR DATA" -> "ENOUGH DATA?" [label="receive byte"];
+  "ENOUGH DATA?" [shape=diamond];
+  "ENOUGH DATA?" -> "WAIT FOR DATA" [label="no"];
+  "ENOUGH DATA?" -> "WAIT FOR CRC" [label="yes"];
+  "WAIT FOR CRC" -> "ERROR" [label="timeout"];
+  "WAIT FOR CRC" -> "CALCULATE CRC" [label="receive byte"];
+  "CALCULATE CRC" -> "VALID CRC?";
+  "VALID CRC?" [shape=diamond];
+  "VALID CRC?" -> "ERROR" [label="no"];
+  "VALID CRC?" -> "EXTRACT PAYLOAD" [label="yes"];
+  "ERROR" -> "INCREMENT RETRY_COUNT";
+  "INCREMENT RETRY_COUNT" -> "RETRY_COUNT > 4?";
+  "RETRY_COUNT > 4?" -> "FAILURE" [label="yes"];
+  "RETRY_COUNT > 4?" -> "TRANSMIT PACKET" [label="no"];
+  "EXTRACT PAYLOAD" -> "RESPONSE CODE OK?";
+  "RESPONSE CODE OK?" [shape=diamond];
+  "RESPONSE CODE OK?" -> "ERROR" [label="no"];
+  "RESPONSE CODE OK?" -> "SUCCESS" [label="yes"];
+}
