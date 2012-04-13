@@ -1,0 +1,11 @@
+This example shows how to use Processing to control a makerbot.
+
+To use it, you will to install the python libraries pyserial and pyosc. Then run:
+
+    python osc_demo.py -s /dev/tty.usbmodemfd121
+
+to start the python OSC server.
+
+
+Next, start Processing and run the osc_s3g_demo sketch. You will need the oscP5
+library. Click and drag on the window to change the head position of the makerbot.
