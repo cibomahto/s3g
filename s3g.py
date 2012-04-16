@@ -1,13 +1,16 @@
 # Some utilities for speaking s3g
 import struct
-
+import time
 
 command_map = {
   'QUEUE_EXTENDED_POINT'    : 139,
 }
 
+# TODO: convention for naming these?
 header = 0xD5
 maximum_payload_length = 32
+max_retry_count = 2
+timeout_length = .5
 
 class PacketError(Exception):
   def __init__(self, value):
@@ -34,6 +37,12 @@ class PacketCRCError(PacketError):
   def __init__(self, crc, expected_crc):
     self.value='Invalid crc. Got=%x, Expected=%x'%(crc, expected_crc)
     pass
+
+class TransmissionError(Exception):
+  def __init__(self, value):
+     self.value = value
+  def __str__(self):
+    return repr(self.value)
 
 def CalculateCRC(data):
   """
@@ -85,7 +94,7 @@ def EncodeUint32(number):
   """
   return struct.pack('<I', number)
 
-def EncodePacket(payload):
+def EncodePayload(payload):
   """
   Encode a packet that contains the given payload
   @param payload Command payload, 1 - n bytes describing the command to send
@@ -133,7 +142,7 @@ class PacketStreamDecoder:
   each packet, then extracts and returns the payload.
   """
   def __init__(self):
-    self.state = 'READY'
+    self.state = 'WAIT_FOR_HEADER'
     self.payload = bytearray()
     self.expected_length = 0
 
@@ -142,9 +151,13 @@ class PacketStreamDecoder:
     """
     Entry point, call for each byte added to the stream.
     @param byte Byte to add to the stream
-    @return s3g payload if a full packet was received, None otherwise.
     """
-    if self.state == 'READY':
+    # Python streams seem to suck. Some give chars, others give
+    # integers. I give up.
+#    if type(byte) == type(str):
+#      byte = ord(byte)
+
+    if self.state == 'WAIT_FOR_HEADER':
       if byte != header:
         raise PacketHeaderError(byte, header)
 
@@ -166,32 +179,54 @@ class PacketStreamDecoder:
       if CalculateCRC(self.payload) != byte:
         raise PacketCRCError(byte, CalculateCRC(self.payload))
 
-      self.state = 'READY'
-      return self.payload
-
-#def ReadResponse(file):
-#  """
-#  Blocking call to read up to one s3g packet from a file stream. Returns the payload
-#  if the reception was successful, and an exception if the reception was not successful.
-#  @param file File to read packet from
-#  @return Payload of the packet, if successful
-#  """
-#  packet = PacketStreamDecoder()
-#  payload = None
-#
-#  while file.inWaiting() > 0:
-#    data = file.read()
-#    print ord(data)
-#    payload = packet.ParseByte(data)
-#    if payload != None:
-#      return payload
-#
-#  return 'a'
+      self.state = 'PAYLOAD_READY'
 
 
 class Replicator:
   def __init__(self):
     self.file = None
+
+  def SendCommand(self, payload):
+    """
+    Attempt to send a command to the machine, retrying up to 5 times if an error
+    occurs.
+    @param payload Command to send to the machine
+    @return Response payload, if successful. 
+    """
+    packet = EncodePayload(payload)
+
+    retry_count = 0
+
+    while retry_count < max_retry_count:
+      decoder = PacketStreamDecoder()
+      self.file.write(packet)
+      self.file.flush()
+
+      # Timeout if a response is not received within 1 second.
+      start_time = time.time()
+
+      try:
+        while (decoder.state != 'PAYLOAD_READY'):
+          # Try to read a byte
+          data = ''
+          while data == '':
+            if (time.time() > start_time + timeout_length):
+              raise IOError("timeout")
+
+            data = self.file.read(1)
+
+          data = ord(data)
+          decoder.ParseByte(data)
+
+        return decoder.payload
+
+      except (PacketError, IOError) as e:
+        """ PacketError: header, length, crc error """
+        """ IOError: pyserial timeout error, etc """
+#        print "packet error: " + str(e)
+        retry_count = retry_count + 1
+
+    raise TransmissionError("Failed to send packet")
 
   def Move(self, position, rate):
     """
@@ -208,7 +243,7 @@ class Replicator:
     payload.extend(EncodeInt32(position[4]))
     payload.extend(EncodeUint32(rate))
     
-    packet = EncodePacket(payload)
+    packet = EncodePayload(payload)
     self.file.write(packet)
     self.file.flush()
 

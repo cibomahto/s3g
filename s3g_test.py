@@ -5,9 +5,11 @@ import s3g
 
 class CRCTests(unittest.TestCase):
   def test_cases(self):
+    # Calculated using the processing tool 'ibutton_crc'
     cases = [
-      [b'input', b'\xFF'],
-      [b'input2', b'\xFF'],
+      [b'', 0],
+      [b'abcdefghijk', 0xb4],
+      [b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f', 0x3c],
     ]
     for case in cases:
       assert s3g.CalculateCRC(case[0]) == case[1]
@@ -38,27 +40,27 @@ class PacketEncodeTests(unittest.TestCase):
     payload = bytearray()
     for i in range (0, s3g.maximum_payload_length + 1):
       payload.append(i)
-    self.assertRaises(s3g.PacketLengthError,s3g.EncodePacket,payload)
+    self.assertRaises(s3g.PacketLengthError,s3g.EncodePayload,payload)
 
   def test_packet_length(self):
     payload = 'abcd'
-    packet = s3g.EncodePacket(payload)
+    packet = s3g.EncodePayload(payload)
     assert len(packet) == len(payload) + 3
 
   def test_packet_header(self):
     payload = 'abcd'
-    packet = s3g.EncodePacket(payload)
+    packet = s3g.EncodePayload(payload)
 
     assert packet[0] == s3g.header
 
   def test_packet_length_field(self):
     payload = 'abcd'
-    packet = s3g.EncodePacket(payload)
+    packet = s3g.EncodePayload(payload)
     assert packet[1] == len(payload)
 
   def test_packet_crc(self):
     payload = 'abcd'
-    packet = s3g.EncodePacket(payload)
+    packet = s3g.EncodePayload(payload)
     assert packet[6] == s3g.CalculateCRC(payload);
 
 
@@ -106,14 +108,14 @@ class PacketStreamDecoderTests(unittest.TestCase):
   def tearDown(self):
     self.s = None
 
-  def test_starts_in_ready_mode(self):
-    assert(self.s.state == 'READY')
+  def test_starts_in_wait_for_header_mode(self):
+    assert(self.s.state == 'WAIT_FOR_HEADER')
     assert(len(self.s.payload) == 0)
     assert(self.s.expected_length == 0)
 
   def test_reject_bad_header(self):
     self.assertRaises(s3g.PacketHeaderError,self.s.ParseByte,0x00)
-    assert(self.s.state == 'READY')
+    assert(self.s.state == 'WAIT_FOR_HEADER')
 
   def test_accept_header(self):
     self.s.ParseByte(s3g.header)
@@ -147,14 +149,15 @@ class PacketStreamDecoderTests(unittest.TestCase):
       self.s.ParseByte(payload[i])
     self.assertRaises(s3g.PacketCRCError,self.s.ParseByte,s3g.CalculateCRC(payload)+1)
 
-  def test_returns_payload(self):
+  def test_accepts_crc(self):
     payload = 'abcde'
     self.s.ParseByte(s3g.header)
     self.s.ParseByte(len(payload))
     for i in range (0, len(payload)):
       self.s.ParseByte(payload[i])
-    assert(self.s.ParseByte(s3g.CalculateCRC(payload)) == payload)
-    assert(self.s.state == 'READY')
+    self.s.ParseByte(s3g.CalculateCRC(payload))
+    assert(self.s.state == 'PAYLOAD_READY')
+    assert(self.s.payload == payload)
 
 
 class ReplicatorTests(unittest.TestCase):
@@ -170,9 +173,57 @@ class ReplicatorTests(unittest.TestCase):
 
   def tearDown(self):
     self.r = None
-    self.readstream = None
-    self.writestream = None
+    self.outputstream = None
+    self.inputstream = None
     self.file = None
+
+  def test_send_command_timeout(self):
+    """
+    Time out when no data is received. The input stream should have max_rety_count copies of the
+    payload packet in it.
+    """
+    payload = 'abcde'
+    self.assertRaises(s3g.TransmissionError,self.r.SendCommand,payload)
+
+    #TODO: We should use a queue here, it doesn't make sense to shove this in a file buffer?
+    self.inputstream.seek(0)
+
+    expected_packet = s3g.EncodePayload(payload)
+    for i in range (0, s3g.max_retry_count):
+      for byte in expected_packet:
+        assert byte == ord(self.inputstream.read(1))
+
+  def test_send_command_first_response_bad(self):
+    """
+    Passing case: test that the transmission can recover from a single bad byte.
+    """
+    payload = 'abcde'
+
+    expected_response_payload = '12345'
+    self.outputstream.write('a')
+    self.outputstream.write(s3g.EncodePayload(expected_response_payload))
+    #TODO: We should use a queue here, it doesn't make sense to shove this in a file buffer?
+    self.inputstream.seek(0)
+    self.outputstream.seek(0)
+
+    assert (expected_response_payload == self.r.SendCommand(payload))
+    assert (s3g.EncodePayload(payload) + s3g.EncodePayload(payload) == self.inputstream.getvalue())
+
+  def test_send_command(self):
+    """
+    Passing case: Preload the buffer with a correctly formatted expected response, and
+    verify that it works correctly.
+    """
+    payload = 'abcde'
+
+    expected_response_payload = '12345'
+    self.outputstream.write(s3g.EncodePayload(expected_response_payload))
+    #TODO: We should use a queue here, it doesn't make sense to shove this in a file buffer?
+    self.inputstream.seek(0)
+    self.outputstream.seek(0)
+
+    assert (expected_response_payload == self.r.SendCommand(payload))
+    assert (s3g.EncodePayload(payload) == self.inputstream.getvalue())
 
   def test_queue_extended_point(self):
     expected_target = [1,2,3,4,5]
