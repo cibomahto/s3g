@@ -183,31 +183,39 @@ class ReplicatorTests(unittest.TestCase):
     payload packet in it.
     """
     payload = 'abcde'
+    expected_packet = s3g.EncodePayload(payload)
+
     self.assertRaises(s3g.TransmissionError,self.r.SendCommand,payload)
 
     #TODO: We should use a queue here, it doesn't make sense to shove this in a file buffer?
     self.inputstream.seek(0)
 
-    expected_packet = s3g.EncodePayload(payload)
     for i in range (0, s3g.max_retry_count):
       for byte in expected_packet:
         assert byte == ord(self.inputstream.read(1))
 
-  def test_send_command_first_response_bad(self):
+  def test_send_command_many_bad_responses(self):
     """
-    Passing case: test that the transmission can recover from a single bad byte.
+    Passing case: test that the transmission can recover from one less than the alloted
+    number of errors.
     """
     payload = 'abcde'
+    expected_packet = s3g.EncodePayload(payload)
 
     expected_response_payload = '12345'
-    self.outputstream.write('a')
+    for i in range (0, s3g.max_retry_count - 1):
+      self.outputstream.write('a')
     self.outputstream.write(s3g.EncodePayload(expected_response_payload))
+
     #TODO: We should use a queue here, it doesn't make sense to shove this in a file buffer?
-    self.inputstream.seek(0)
     self.outputstream.seek(0)
 
     assert (expected_response_payload == self.r.SendCommand(payload))
-    assert (s3g.EncodePayload(payload) + s3g.EncodePayload(payload) == self.inputstream.getvalue())
+    #TODO: We should use a queue here, it doesn't make sense to shove this in a file buffer?
+    self.inputstream.seek(0)
+    for i in range (0, s3g.max_retry_count - 1):
+      for byte in expected_packet:
+        assert byte == ord(self.inputstream.read(1))
 
   def test_send_command(self):
     """
@@ -219,11 +227,12 @@ class ReplicatorTests(unittest.TestCase):
     expected_response_payload = '12345'
     self.outputstream.write(s3g.EncodePayload(expected_response_payload))
     #TODO: We should use a queue here, it doesn't make sense to shove this in a file buffer?
-    self.inputstream.seek(0)
     self.outputstream.seek(0)
 
     assert (expected_response_payload == self.r.SendCommand(payload))
     assert (s3g.EncodePayload(payload) == self.inputstream.getvalue())
+
+  # TODO: Test timing based errors- can we send half a response, get it to re-send, then send a regular response?
 
   def test_queue_extended_point(self):
     expected_target = [1,2,3,4,5]

@@ -9,7 +9,7 @@ command_map = {
 # TODO: convention for naming these?
 header = 0xD5
 maximum_payload_length = 32
-max_retry_count = 2
+max_retry_count = 5
 timeout_length = .5
 
 class PacketError(Exception):
@@ -194,10 +194,9 @@ class Replicator:
     @return Response payload, if successful. 
     """
     packet = EncodePayload(payload)
-
     retry_count = 0
 
-    while retry_count < max_retry_count:
+    while True:
       decoder = PacketStreamDecoder()
       self.file.write(packet)
       self.file.flush()
@@ -225,8 +224,8 @@ class Replicator:
         """ IOError: pyserial timeout error, etc """
 #        print "packet error: " + str(e)
         retry_count = retry_count + 1
-
-    raise TransmissionError("Failed to send packet")
+        if retry_count >= max_retry_count:
+          raise TransmissionError("Failed to send packet")
 
   def Move(self, position, rate):
     """
